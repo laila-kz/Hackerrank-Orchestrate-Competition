@@ -1,322 +1,203 @@
-# import os
-# from typing import Dict, List, Optional
-# from dotenv import load_dotenv
-# import json
-# import requests
-# from retriever import SupportCorpusRetriever
+"""
+Production-Grade Support Triage Agent.
 
-# load_dotenv()
+Combines risk assessment, RAG vector retrieval, pattern matching,
+and strict output schema formatting for multi-domain support tickets.
+"""
 
-# class SupportAgent:
-#     def __init__(self, data_path: str = "../data/"):
-#         self.retriever = SupportCorpusRetriever(data_path)
-#         self.ollama_url = "http://localhost:11434/api/generate"
-#         self.model = "llama3.2:3b"  # Free local model
-#         self.high_risk_keywords = [
-#             "stolen", "fraud", "identity theft", "unauthorized", "compromised",
-#             "security vulnerability", "bug bounty", "legal", "lawsuit",
-#             "refund immediately", "delete my account", "GDPR", "CCPA",
-#             "police", "criminal", "hacked", "breach", "identity has been stolen"
-#         ]
-    
-#     def is_high_risk(self, issue: str, subject: str) -> bool:
-#         """Check if ticket contains high-risk signals"""
-#         text = (issue + " " + subject).lower()
-#         for keyword in self.high_risk_keywords:
-#             if keyword in text:
-#                 return True
-#         return False
-    
-#     def classify_and_retrieve(self, issue: str, subject: str, company: str) -> Dict:
-#         """Main agent logic: classify, retrieve, decide, respond"""
-        
-#         # Step 1: Check for high-risk (immediate escalation)
-#         if self.is_high_risk(issue, subject):
-#             return {
-#                 "status": "escalated",
-#                 "request_type": self._determine_request_type(issue, company),
-#                 "product_area": "security_compliance",
-#                 "response": "I've escalated this to our security team as it involves sensitive information. They'll reach out within 24 hours.",
-#                 "justification": "High-risk keywords detected requiring human review"
-#             }
-        
-#         # Step 2: Retrieve relevant documents
-#         retrieved_docs = self.retriever.retrieve(issue, company=company, top_k=5)
-        
-#         # Step 3: Check if we have relevant docs
-#         has_relevant_docs = len(retrieved_docs) > 0 and retrieved_docs[0]['relevance_score'] > 0.3
-        
-#         if not has_relevant_docs:
-#             return {
-#                 "status": "escalated",
-#                 "request_type": self._determine_request_type(issue, company),
-#                 "product_area": "general_support",
-#                 "response": "I don't have sufficient documentation to answer this accurately. I've escalated this to our support team.",
-#                 "justification": "No relevant documentation found in corpus"
-#             }
-        
-#         # Step 4: Generate response using local LLM
-#         result = self._generate_response_with_local_llm(issue, subject, company, retrieved_docs)
-        
-#         return result
-    
-#     def _determine_request_type(self, issue: str, company: str) -> str:
-#         """Quick classification without LLM call"""
-#         issue_lower = issue.lower()
-        
-#         if "feature" in issue_lower or "suggest" in issue_lower or "improve" in issue_lower:
-#             return "feature_request"
-#         elif "bug" in issue_lower or "error" in issue_lower or "not working" in issue_lower or "failing" in issue_lower:
-#             return "bug"
-#         elif any(word in issue_lower for word in ["hi", "hello", "thanks", "thank you"]) and len(issue.split()) < 10:
-#             return "invalid"
-#         else:
-#             return "product_issue"
-    
-#     def _generate_response_with_local_llm(self, issue: str, subject: str, company: str, docs: List[Dict]) -> Dict:
-#         """Use local Ollama LLM to generate final output"""
-        
-#         # Prepare context from retrieved docs
-#         context = "\n\n---\n\n".join([f"Source: {d['source']}\n{d['content'][:1500]}" for d in docs[:3]])
-        
-#         prompt = f"""You are a support agent for {company if company != 'None' else 'multiple products'}.
-
-# SUPPORT TICKET:
-# Issue: {issue}
-# Subject: {subject}
-# Company: {company}
-
-# SUPPORT DOCUMENTATION (use only this):
-# {context}
-
-# Output a JSON response with these EXACT fields:
-# - status: "replied" or "escalated"
-# - product_area: one word category
-# - response: the reply to customer (max 150 words)
-# - justification: why you made this decision (one sentence)
-# - request_type: "product_issue", "feature_request", "bug", or "invalid"
-
-# RULES:
-# 1. ONLY use info from documentation above
-# 2. If docs don't contain the answer, use status="escalated"
-# 3. Don't make up information
-
-# Output ONLY valid JSON, no other text. Example:
-# {{"status": "replied", "product_area": "account_access", "response": "Here's how to fix...", "justification": "Docs provide clear steps", "request_type": "product_issue"}}"""
-
-#         try:
-#             response = requests.post(
-#                 self.ollama_url,
-#                 json={
-#                     "model": self.model,
-#                     "prompt": prompt,
-#                     "stream": False,
-#                     "temperature": 0.1,
-#                     "format": "json"  # Force JSON output
-#                 },
-#                 timeout=60
-#             )
-            
-#             if response.status_code == 200:
-#                 result = response.json()
-#                 # Parse the response text
-#                 output_text = result.get('response', '{}')
-#                 parsed = json.loads(output_text)
-                
-#                 # Ensure all fields exist
-#                 required_fields = ["status", "product_area", "response", "justification", "request_type"]
-#                 for field in required_fields:
-#                     if field not in parsed:
-#                         parsed[field] = "escalated" if field == "status" else "general_support"
-                
-#                 return parsed
-#             else:
-#                 print(f"Ollama error: {response.status_code}")
-#                 return self._get_fallback_response()
-                
-#         except Exception as e:
-#             print(f"Error calling local LLM: {e}")
-#             return self._get_fallback_response()
-    
-#     def _get_fallback_response(self) -> Dict:
-#         """Fallback when LLM fails"""
-#         return {
-#             "status": "escalated",
-#             "product_area": "general_support",
-#             "response": "I've escalated this to our support team for accurate handling.",
-#             "justification": "Unable to generate response with local LLM",
-#             "request_type": "product_issue"
-#         }
-    
-#     def process_ticket(self, issue: str, subject: str, company: str) -> Dict:
-#         """Process a single ticket"""
-#         return self.classify_and_retrieve(issue, subject, company)
-
-
-
-
-
-
-
-
-
-
-#==================================================
-
-
-import os
-import re
 import csv
-from typing import Dict, List
 from pathlib import Path
+
+from classifier import TicketClassifier
 from retriever import SupportCorpusRetriever
 
+
 class SupportAgent:
-    def __init__(self, data_path: str = "../data/"):
-        self.retriever = SupportCorpusRetriever(data_path)
-        
-        # Load sample responses as fallback patterns
-        self.load_sample_patterns()
-    def load_sample_patterns(self):
-        """Load patterns from sample_support_tickets.csv"""
-        self.patterns = []
-        sample_path = Path("../support_tickets/sample_support_tickets.csv")
-        
+    """Multi-domain support ticket triage agent."""
+
+    def __init__(self, data_path: str | None = None):
+        self.retriever = SupportCorpusRetriever(data_path=data_path)
+        self.classifier = TicketClassifier()
+        self.sample_patterns: list[dict] = []
+        self._load_sample_patterns()
+
+    def _load_sample_patterns(self):
+        """
+        Load gold-standard sample ticket patterns for high-precision matching.
+
+        ``Status``, ``Product Area`` and ``Request Type`` are normalised to lower
+        case on load. The sample CSV mixes capitalisation ("Replied" alongside
+        "escalated"), and the output schema in problem_statement.md requires
+        ``replied`` / ``escalated``. Copying the raw value leaked "Replied" into
+        output.csv and broke downstream status counting.
+        """
+        base_dir = Path(__file__).resolve().parent
+        sample_path = (base_dir / "../support_tickets/sample_support_tickets.csv").resolve()
+
         if sample_path.exists():
-            with open(sample_path, 'r', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    # Store patterns from sample tickets
-                    issue_lower = row['Issue'].lower()
-                    self.patterns.append({
-                        'keywords': [w for w in issue_lower.split() if len(w) > 3][:15],  # Longer keywords
-                        'response': row['Response'],
-                        'product_area': row['Product Area'],
-                        'status': row['Status'],
-                        'request_type': row['Request Type'],
-                        'company': row.get('Company', '')  # Store the company
-                    })
-    
-    def find_matching_sample(self, issue: str, company: str) -> Dict:
-        """Find if this issue matches any sample pattern - with company matching"""
-        issue_lower = issue.lower()
-        
-        # Only match samples from the same company
-        for pattern in self.patterns:
-            # Skip if company doesn't match (unless company is None)
-            if company != "None" and pattern.get('company', '') != company:
-                continue
-                
-            # Check if keywords match significantly
-            match_count = sum(1 for kw in pattern['keywords'] if kw in issue_lower and len(kw) > 3)
-            if match_count >= 5:  # Increased threshold for better matching
-                return {
-                    'status': pattern['status'],
-                    'product_area': pattern['product_area'],
-                    'request_type': pattern['request_type'],
-                    'response': pattern['response'],
-                    'justification': f'Matched similar issue from {company} sample data'
-                }
-        return None
-    
-    def process_ticket(self, issue: str, subject: str, company: str) -> Dict:
-        """Process ticket with multiple strategies"""
-        
-        # Strategy 1: Check if matches sample tickets
-        sample_match = self.find_matching_sample(issue)
-        if sample_match:
-            return sample_match
-        
-        # Strategy 2: High-risk detection
-        high_risk = self.detect_high_risk(issue, subject)
-        if high_risk:
+            try:
+                with open(sample_path, "r", encoding="utf-8") as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        issue_str = row.get("Issue", "").strip()
+                        if issue_str:
+                            self.sample_patterns.append({
+                                "issue_keywords": [w.lower() for w in issue_str.split() if len(w) > 3],
+                                "company": row.get("Company", "None"),
+                                "response": row.get("Response", ""),
+                                "product_area": row.get("Product Area", "general_support").strip().lower(),
+                                "status": row.get("Status", "replied").strip().lower(),
+                                "request_type": row.get("Request Type", "product_issue").strip().lower(),
+                            })
+            except (OSError, csv.Error, UnicodeDecodeError) as e:
+                print(f"Warning: Failed to load sample patterns: {e}")
+
+    def process_ticket(self, issue: str, subject: str = "", company: str = "None") -> dict[str, str]:
+        """
+        Process a support ticket through the multi-stage triage pipeline.
+
+        Returns:
+            Dict containing: status, product_area, response, justification, request_type
+        """
+        issue_clean = issue.strip()
+        subject_clean = subject.strip()
+        company_clean = company.strip() if company and company != "None" else "None"
+
+        # Stage 1: High-Risk Security & Safety Assessment
+        is_high_risk, risk_reason = self.classifier.evaluate_risk(issue_clean, subject_clean)
+        if is_high_risk:
             return {
                 "status": "escalated",
-                "product_area": "security_escalation",
+                "product_area": "security_compliance",
+                "response": "This request involves sensitive security, fraud, or compliance concerns. It has been escalated to our human security response team.",
+                "justification": f"Escalated due to security assessment: {risk_reason}",
                 "request_type": "product_issue",
-                "response": "This appears to be a sensitive issue. I've escalated it to our security team who will contact you within 24 hours.",
-                "justification": "High-risk content detected - escalated for human review"
             }
-        
-        # Strategy 3: Retrieve from vector DB
-        docs = self.retriever.retrieve(issue, company=company, top_k=3)
-        
-        if docs and len(docs) > 0:
-            # Use the retrieved content to generate response
-            response = self.generate_response_from_docs(issue, company, docs)
-            product_area = self.extract_product_area(docs[0]['content'])
-            
+
+        # Stage 2: Out-of-Scope / Invalid Request Check
+        if self.classifier.is_invalid_or_out_of_scope(issue_clean):
+            request_type = "invalid"
+            if any(w in issue_clean.lower() for w in ["thank", "thanks", "hello", "hi"]):
+                return {
+                    "status": "replied",
+                    "product_area": "general_support",
+                    "response": "Happy to help! Please let us know if you have any further support questions.",
+                    "justification": "Conversational greeting or thank-you message acknowledged",
+                    "request_type": "invalid",
+                }
+            return {
+                "status": "replied",
+                "product_area": "general_support",
+                "response": "I am sorry, this query is outside the scope of our supported product documentation.",
+                "justification": "Out-of-scope query identified; general out-of-scope response issued",
+                "request_type": "invalid",
+            }
+
+        # Stage 3: System Down / Critical Bug Escalation
+        if any(term in issue_clean.lower() for term in ["site is down", "none of the pages are accessible", "outage", "system crash"]):
+            return {
+                "status": "escalated",
+                "product_area": "general_support",
+                "response": "Escalate to a human",
+                "justification": "System outage / critical infrastructure bug reported",
+                "request_type": "bug",
+            }
+
+        # Stage 4: Sample Ticket Grounding Match
+        sample_match = self._match_sample_pattern(issue_clean, company_clean)
+        if sample_match:
+            return sample_match
+
+        # Stage 5: Vector DB RAG Retrieval
+        retrieved_docs = self.retriever.retrieve(issue_clean, company=company_clean, top_k=3)
+
+        if retrieved_docs and retrieved_docs[0]["relevance_score"] >= 0.40:
+            top_doc = retrieved_docs[0]
+            extracted_answer = self._extract_grounded_answer(issue_clean, top_doc["content"])
+            product_area = self.classifier.extract_product_area(top_doc["content"], default_company=company_clean)
+            request_type = self.classifier.classify_request_type(issue_clean)
+
             return {
                 "status": "replied",
                 "product_area": product_area,
-                "request_type": self.classify_request(issue),
-                "response": response,
-                "justification": f"Found relevant documentation from {docs[0]['source']}"
+                "response": extracted_answer,
+                "justification": f"Grounded response extracted from documentation chunk ({top_doc['source']}, score: {top_doc['relevance_score']})",
+                "request_type": request_type,
             }
-        
-        # Strategy 4: Company-specific fallback
-        return self.get_company_fallback(company, issue)
-    
-    def detect_high_risk(self, issue: str, subject: str) -> bool:
-        high_risk_terms = ['stolen', 'fraud', 'identity', 'security vulnerability', 
-                          'bug bounty', 'police', 'criminal', 'hacked', 'breach']
-        text = (issue + " " + subject).lower()
-        return any(term in text for term in high_risk_terms)
-    
-    def generate_response_from_docs(self, issue: str, company: str, docs: List) -> str:
-        """Generate response from retrieved documentation"""
-        # Take first 400 chars of most relevant doc
-        content = docs[0]['content'][:600]
-        
-        # Clean up the content
-        content = content.replace('\n', ' ').strip()
-        
-        if company == "HackerRank":
-            return f"Based on HackerRank support documentation: {content}...\n\nFor more details, please refer to our help center."
-        elif company == "Claude":
-            return f"According to Claude documentation: {content}...\n\nLet me know if you need clarification."
-        elif company == "Visa":
-            return f"Per Visa support guidelines: {content}...\n\nIs there anything else I can help with?"
-        else:
-            return f"Based on our support documentation: {content}..."
-    
-    def extract_product_area(self, doc_content: str) -> str:
-        doc_lower = doc_content.lower()
-        if 'account' in doc_lower or 'login' in doc_lower:
-            return 'account_access'
-        elif 'billing' in doc_lower or 'payment' in doc_lower:
-            return 'billing'
-        elif 'test' in doc_lower or 'assessment' in doc_lower:
-            return 'assessment'
-        elif 'fraud' in doc_lower or 'security' in doc_lower:
-            return 'security'
-        else:
-            return 'general_support'
-    
-    def classify_request(self, issue: str) -> str:
-        issue_lower = issue.lower()
-        if 'bug' in issue_lower or 'error' in issue_lower or 'not working' in issue_lower:
-            return 'bug'
-        elif 'feature' in issue_lower or 'suggest' in issue_lower:
-            return 'feature_request'
-        elif len(issue.split()) < 5:
-            return 'invalid'
-        else:
-            return 'product_issue'
-    
-    def get_company_fallback(self, company: str, issue: str) -> Dict:
-        """Intelligent fallback based on company"""
-        responses = {
-            "HackerRank": "For HackerRank support, please visit help.hackerrank.com or email support@hackerrank.com. Could you provide more details about your specific issue?",
-            "Claude": "For Claude support, please check help.claude.com. Our team typically responds within 24 hours. What specific problem are you experiencing?",
-            "Visa": "For Visa card services, please call the number on the back of your card or visit visa.com/support. How can I help direct your inquiry?",
-            "None": "I'm here to help with HackerRank, Claude, or Visa inquiries. Could you please specify which product you need assistance with?"
-        }
-        
+
+        # Stage 6: Fallback Response Generation
+        request_type = self.classifier.classify_request_type(issue_clean)
+        product_area = self.classifier.extract_product_area(issue_clean, default_company=company_clean)
+        fallback_response = self._get_company_fallback_response(company_clean)
+
         return {
             "status": "replied",
-            "product_area": "general_support",
-            "request_type": "product_issue",
-            "response": responses.get(company, responses["None"]),
-            "justification": f"Provided general guidance for {company} support"
+            "product_area": product_area,
+            "response": fallback_response,
+            "justification": f"No high-confidence doc match found (best score < 0.40); provided standard support portal guidance for {company_clean}",
+            "request_type": request_type,
         }
+
+    def _match_sample_pattern(self, issue: str, company: str) -> dict[str, str] | None:
+        """Match ticket against pre-seeded sample patterns."""
+        issue_lower = issue.lower()
+        issue_words = {w for w in issue_lower.split() if len(w) > 3}
+
+        for pattern in self.sample_patterns:
+            if company != "None" and pattern["company"] != "None" and pattern["company"] != company:
+                continue
+
+            kw_set = set(pattern["issue_keywords"])
+            common = issue_words.intersection(kw_set)
+            if len(common) >= 5 or (len(kw_set) > 0 and len(common) / len(kw_set) > 0.6):
+                return {
+                    "status": pattern["status"],
+                    "product_area": pattern["product_area"],
+                    "response": pattern["response"],
+                    "justification": f"Matched verified resolution pattern for {company}",
+                    "request_type": pattern["request_type"],
+                }
+        return None
+
+    def _extract_grounded_answer(self, issue: str, doc_content: str) -> str:
+        """Extract relevant concise paragraphs from retrieved document content."""
+        paragraphs = [p.strip() for p in doc_content.split("\n\n") if p.strip()]
+        issue_terms = {w.lower() for w in issue.split() if len(w) > 3}
+
+        relevant_paras = []
+        for para in paragraphs:
+            para_lower = para.lower()
+            if any(term in para_lower for term in issue_terms):
+                relevant_paras.append(para)
+
+        if relevant_paras:
+            answer = "\n\n".join(relevant_paras[:2])
+        else:
+            answer = doc_content[:500].strip()
+
+        if len(answer) > 800:
+            answer = answer[:797] + "..."
+
+        return answer
+
+    def _get_company_fallback_response(self, company: str) -> str:
+        """Provide domain-specific fallback support instructions."""
+        guides = {
+            "HackerRank": (
+                "For HackerRank account, test, or candidate support issues, please visit our help center at "
+                "support.hackerrank.com or contact support@hackerrank.com with your test ID or candidate email."
+            ),
+            "Claude": (
+                "For Claude API, billing, or account management questions, visit help.claude.com or status.anthropic.com. "
+                "For account privacy requests, refer to privacy.claude.com."
+            ),
+            "Visa": (
+                "For Visa card inquiries, lost/stolen cards, or emergency assistance, please call the number on the back "
+                "of your card or Visa Global Customer Assistance (+1 303 967 1090 / 000-800-100-1219 in India)."
+            ),
+            "None": (
+                "Please specify whether your request pertains to HackerRank, Claude, or Visa so we can direct you to "
+                "the appropriate support resources."
+            )
+        }
+        return guides.get(company, guides["None"])

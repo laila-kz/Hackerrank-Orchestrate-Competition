@@ -1,0 +1,25 @@
+ChromaDB index rebuild
+python:     C:\Users\kheza\AppData\Local\Programs\Python\Python311\python.exe
+chromadb:   1.5.9
+collection: support_docs_v3
+embedding:  FastLocalEmbeddingFunction (BLAKE2b hashed bag-of-terms, dim=128)
+corpus:     C:\Users\kheza\Desktop\fixing-up-repos\Hackerrank-Orchestrate-Competition\data
+==============================================================
+opened persistent store (0.11s)
+existing collections: ['support_docs', 'support_docs_v3']
+deleted collection 'support_docs_v3'
+created collection 'support_docs_v3'
+read + chunked 3982 documents (0.84s)
+    claude        1331 chunks
+    hackerrank    2611 chunks
+    visa            40 chunks
+embedded + added 3982/3982 chunks in batches of 100 (13.95s)
+collection count: 3982
+
+smoke query (0.003s): 'my visa card was stolen and I need a replacement'
+    1. score=0.5549 company=visa source=visa-rules.md
+    2. score=0.5421 company=claude source=13892150-work-across-excel-powerpoint-and-word.md
+    3. score=0.5241 company=claude source=11869629-using-claude-with-android-apps.md
+
+determinism fingerprint: [0.5549, 0.5421, 0.5241]
+total wall clock: 18.10s
