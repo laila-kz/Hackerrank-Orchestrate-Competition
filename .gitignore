@@ -39,3 +39,5 @@ data/embeddings/
 
 # Logs
 *.log
+# Session log belongs in %USERPROFILE%\hackerrank_orchestrate\ per AGENTS.md 2
+log.txt
