@@ -1,33 +1,41 @@
-# secrets
+# Environment & Secrets
 .env
 .env.local
 *.pem
 *.key
 
-# deps
-node_modules/
-.pnpm-store/
+# Python Virtual Envs & Caches
 .venv/
 venv/
+env/
+ENV/
 __pycache__/
 *.pyc
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 
-# build
+# Build & Archives
 dist/
 build/
 *.tsbuildinfo
+code.zip
+*.zip
 
-# editor / os
+# Editor / OS
 .DS_Store
 .idea/
 .vscode/
 Thumbs.db
 
-# local data / caches the participant may create
+# Vector Stores & Local Databases
+chroma_db/
+code/chroma_db/
 data/index/
 data/embeddings/
 *.sqlite
+*.sqlite3
 *.db
+
+# Logs
+*.log
